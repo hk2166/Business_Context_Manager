@@ -88,7 +88,7 @@ async def search_memory(payload: MemoryQuery, db: AsyncSession = Depends(get_db)
         .where(Memory.embedding.is_not(None))
     )
 
-    # 🔹 Entity filter (if provided)
+    
     if payload.entity_name and payload.entity_type:
         entity_result = await db.execute(
             select(Entity).where(
