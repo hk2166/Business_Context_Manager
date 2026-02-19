@@ -32,7 +32,7 @@ class Memory(Base):
 
     is_stale = Column(Boolean, default=False)
 
-    embedding = Column(Vector(1536))
+    embedding = Column(Vector(3072))
 
 
 class Relation(Base):

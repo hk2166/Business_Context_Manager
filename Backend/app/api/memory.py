@@ -1,9 +1,11 @@
+from app.utils.embedding import get_embedding
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from sqlalchemy import select
 
 from app.database import get_db
 from app.models import Entity, Memory
@@ -19,10 +21,17 @@ class MemoryCreate(BaseModel):
     severity: Optional[float] = 0.0
 
 
+class MemoryQuery(BaseModel):
+    query: str
+    top_k: int = 5
+    entity_name: Optional[str] = None
+    entity_type: Optional[str] = None
+
+
 @router.post("/memories")
 async def create_memory(payload: MemoryCreate, db: AsyncSession = Depends(get_db)):
 
-    # 1️⃣ Find or create entity
+    
     result = await db.execute(
         select(Entity).where(
             Entity.name == payload.entity_name,
@@ -39,16 +48,54 @@ async def create_memory(payload: MemoryCreate, db: AsyncSession = Depends(get_db
         db.add(entity)
         await db.flush()
 
-    # 2️⃣ Create memory
+
+    embedding_vector = await get_embedding(payload.content)
+
     memory = Memory(
         entity_id=entity.id,
         content=payload.content,
         memory_type=payload.memory_type,
         severity=payload.severity,
-        created_at=datetime.utcnow()
-    )
+        created_at=datetime.utcnow(),
+        embedding=embedding_vector
+)
+    
+    
 
     db.add(memory)
     await db.commit()
 
     return {"message": "Memory stored successfully"}
+
+# --------------------------------------------------------------------------------------------------------------------
+
+@router.post("/search")
+async def search_memory(payload: MemoryQuery, db: AsyncSession = Depends(get_db)):
+
+    
+    query_embedding = await get_embedding(payload.query)
+
+
+    stmt = (
+        select(
+            Memory.id,
+            Memory.content,
+            Memory.severity,
+            (1 - Memory.embedding.cosine_distance(query_embedding)).label("similarity")
+        )
+        .order_by(Memory.embedding.cosine_distance(query_embedding))
+        .limit(payload.top_k)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "id": row.id,
+            "content": row.content,
+            "severity": row.severity,
+            "similarity": float(row.similarity)
+        }
+        for row in rows
+    ]
